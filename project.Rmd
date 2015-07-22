@@ -1,0 +1,166 @@
+---
+title: "Course Project"
+author: "Sabato De Maio"
+date: "22 July 2015"
+output: 
+  html_document: 
+    theme: flatly
+    toc: yes
+---
+
+This is the course project for the Machine Learning Course on Coursera by JHU.
+
+The dataset used in this project can be found [here][1].
+
+This data set has some issues and the hardest job is been to clean up the data and provide an homogenized dataset ready to use.
+
+
+# Clean the data
+
+After some explorations of the data (not all code is shown here) we can state that the problem is with some columns full of NA that are not well recognized as NAs because of two things.
+
+Fist: some columns have empty character stings like `""`, say, strings that have a zero number of `nchar()`. Second: the missing values are often indicated as `"#DIV/0!"`, those things are (most likely) the causes that made R coerce some column (with very few numbers) to character strings.
+
+First we load required packages:
+
+```{r}
+library(caret)
+library(rpart.plot)
+library(randomForest)
+library(dplyr)
+```
+and then we laid the data sets that must be in our working directory and must have *train* and *test* names.
+
+```{r}
+training_ori <- read.csv("~/train.csv",
+                     header = T,
+                     stringsAsFactors = F,
+                     na.strings = "#DIV/0!"
+                     )
+
+testing_ori <- read.csv("~/test.csv",
+                    header = T,
+                    stringsAsFactors = F,
+                    na.strings = "#DIV/0!")
+```
+ 
+
+It is useful to check the dimensions of the loaded data sets.
+
+```{r}
+dim(training_ori)
+dim(testing_ori)
+```
+
+After that with the `createDataPartion` function from the `caret` package we randomly create partitions of the training data set.
+
+```{r}
+inTrain <- createDataPartition(y = training_ori$classe, p = 0.5, list = F)
+training <- training_ori[inTrain, ]
+testing <- training_ori[-inTrain, ]
+```
+
+With the following code we create a data frame with the number of index column, the name of the column and the sum of the results of the `is.na` functions. Of course if the result is `TRUE` (and so 1) the sum will be a positive number, otherwise zero. 
+
+```{r}
+trainNAs <- data.frame(index = 1:ncol(training),
+                       name = names(training),
+                       value = sapply(training,
+                                      function(x) sum(is.na(x)) ),
+                       row.names = NULL,
+                       stringsAsFactors = F
+                        )
+```
+
+By inspecting this data set it is clear that there are some columns that have almost all values NA. This can be seen with the following code. Excluding the columns with 0 NA, the mean of those with at least one NA is almost the same amount of the number of the rows. this leads to the conclusion that almost values are NA in some columns.
+
+```{r}
+mean(trainNAs$value[!trainNAs$value == 0])
+```
+
+
+It is very useful then to exclude this columns from the analysis. The next chunk of code does exactly that.
+
+```{r}
+omit_NA <- trainNAs %>% filter(value > 0) %>% select(index)
+dim(omit_NA)
+
+training1 <- training[ , -omit_NA$index]
+```
+
+
+with the next code we see that most column classes are still not right for the type of data they contain. Furthermore we exclude to the conversion made with `apply` some column that indeed need to remain as character (even though they will be )
+
+```{r, warning=FALSE}
+trainclass <- data.frame(Name = names(training1),
+                         Type = sapply(training1, class),
+                         row.names = NULL)
+
+
+
+
+training1[ , -c(1:7, 127)] <- apply(training1[ , -c(1:7, 127)], 2, function(x)
+                        if( class(x) == "character" ) as.numeric(as.character(x)) )
+```
+
+The next code, provide another clean operation of the data based on the number of the NAs (as the previous one).
+
+
+
+
+```{r, warning=FALSE}
+trainNAs2 <- data.frame(index = 1:ncol(training1),
+                       name = names(training1),
+                       value = apply(training1, 2,
+                                      function(x) sum(is.na(x)) ),
+                       row.names = NULL,
+                       stringsAsFactors = F
+                        )
+```
+
+In order to perform the model we (again) subset the data omitting the (other) NAs; we omit some columns that indicates times are not relevant and **most important** we convert our `classe` variable to factor.
+
+```{r, warning=FALSE}
+omit_NA2 <- trainNAs2 %>% filter(value > 0) %>% select(index)
+  
+training2 <- training1[ , -omit_NA2$index]
+training2 <- training2[ , -c(1:7) ]
+
+training2$classe <- as.factor(as.character(training2$classe))
+```
+
+
+# Model
+
+I've chosed a random forest model.
+My model is not very well trained but the problem is *speed* of my computer. That's why I have used **only** 100 trees and a training set 0f 50% the size of the original one.
+
+I have trained other models that are not shown here because a matter of dimensions of this report. I also trained methods: bag, AdaBoost.M1, rpart2, rpart.
+
+The best model is random forest with 100 tree. It is the best balance between perfomance, speed and accuracy.
+
+
+```{r, warning=FALSE, cache=T}
+modelF2 <- train(classe ~., data = training2, method = "rf", ntree = 100)
+modelF2
+
+predictions <- predict(modelF2, testing)
+confusionMatrix(testing$classe, predictions)
+```
+
+And here a table just to have a look at the real data (if the previous informations were not enough).
+
+```{r, warning=FALSE}
+table(predictions, testing$classe)
+```
+
+
+Here a visual rapresentation
+
+```{r, warning=F, cache=T}
+modelgrap <- rpart(classe ~ ., data=training2, method="class")
+prp(modelgrap)
+```
+
+
+[1]: http://groupware.les.inf.puc-rio.br/har
